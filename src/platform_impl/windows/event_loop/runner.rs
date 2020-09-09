@@ -4,6 +4,7 @@ use std::{
     collections::{HashSet, VecDeque},
     mem, panic, ptr,
     rc::Rc,
+    sync::atomic::AtomicBool,
     time::Instant,
 };
 
@@ -32,6 +33,8 @@ pub(crate) struct EventLoopRunner<T: 'static> {
 
     event_handler: Cell<Option<Box<dyn FnMut(Event<'_, T>, &mut ControlFlow)>>>,
     event_buffer: RefCell<VecDeque<BufferedEvent<T>>>,
+
+    pub(crate) fix_alt_gr: AtomicBool,
 
     owned_windows: Cell<HashSet<HWND>>,
 
@@ -73,6 +76,7 @@ impl<T> EventLoopRunner<T> {
             last_events_cleared: Cell::new(Instant::now()),
             event_handler: Cell::new(None),
             event_buffer: RefCell::new(VecDeque::new()),
+            fix_alt_gr: AtomicBool::new(false),
             owned_windows: Cell::new(HashSet::new()),
         }
     }
@@ -98,6 +102,7 @@ impl<T> EventLoopRunner<T> {
             last_events_cleared: _,
             event_handler,
             event_buffer: _,
+            fix_alt_gr: _,
             owned_windows: _,
         } = self;
         runner_state.set(RunnerState::Uninitialized);

@@ -337,10 +337,18 @@ pub fn vkey_to_winit_vkey(vkey: c_int) -> Option<VirtualKeyCode> {
     }
 }
 
-pub fn handle_extended_keys(
+#[derive(Debug, PartialEq)]
+pub(super) enum EventSource {
+    RawInput,
+    Window,
+}
+
+pub(super) fn handle_extended_keys(
     vkey: c_int,
     mut scancode: UINT,
     extended: bool,
+    source: EventSource,
+    fix_alt_gr: &AtomicBool,
 ) -> Option<(c_int, UINT)> {
     // Welcome to hell https://blog.molecular-matters.com/2011/09/05/properly-handling-keyboard-input/
     scancode = if extended { 0xE000 } else { 0x0000 } | scancode;
@@ -349,6 +357,24 @@ pub fn handle_extended_keys(
             winuser::MapVirtualKeyA(scancode, winuser::MAPVK_VSC_TO_VK_EX) as _
         },
         winuser::VK_CONTROL => {
+            // Only triggered in raw mode
+            if scancode == 0xE038 {
+                // This is the first step in a multi-step fix for `AltGr` handling.
+                //
+                // There are a couple of assumptions that must hold for this code to be of any use:
+                //     * The events emitted by an `AltGr` keypress must arrive in a specific order.
+                //     * Re-assigning the virtual keycodes of `Ctrl`, `Alt` and `AltGr` is impossible/improbable.
+                //     * No other keys emit keyboard events with `vkey = VK_CONTROl` and `scancode = 0xE038`.
+                //     * A race-condition with real `Ctrl` key-presses is fine.
+                fix_alt_gr.store(true, Ordering::SeqCst);
+                return None;
+            }
+            // Only triggered by window input
+            //
+            // This is the second step in the `AltGr` fix.
+            if scancode == 0x1D && fix_alt_gr.load(Ordering::SeqCst) {
+                return None;
+            }
             if extended {
                 winuser::VK_RCONTROL
             } else {
@@ -356,19 +382,64 @@ pub fn handle_extended_keys(
             }
         }
         winuser::VK_MENU => {
+            // The last step of the `AltGr` fix. Should be triggered in raw mode, but can also be triggered by window events.
+            if scancode == 0xE038 {
+                fix_alt_gr.compare_and_swap(true, false, Ordering::SeqCst);
+            }
             if extended {
                 winuser::VK_RMENU
             } else {
                 winuser::VK_LMENU
             }
         }
+        winuser::VK_SNAPSHOT => {
+            if (scancode == 0xE037 || scancode == 0x54) && source == EventSource::Window {
+                // Omit window events for "Print Screen" since only the release event is ever sent to the window.
+                return None;
+            } else if scancode == 0x54 {
+                // Normalize the scancode
+                scancode = 0xE037;
+            }
+            vkey
+        }
+        0x3 => {
+            match scancode {
+                // Fix Ctrl+ScrollLock
+                0x46 => winuser::VK_SCROLL,
+                // Fix Ctrl+Pause/Break
+                0xE046 => winuser::VK_PAUSE,
+                _ => vkey,
+            }
+        }
         _ => {
+            match (vkey, scancode) {
+                // Replace erroneous scancodes with a proper scancode for Pause/Break.
+                (winuser::VK_PAUSE, 0xE01D) => scancode = 0xE046,
+                (winuser::VK_PAUSE, 0x45) if source == EventSource::Window => scancode = 0xE046,
+                // Omit extra erroneous "Pause/Break" events. Only happens with raw input.
+                (0xFF, 0x45) => return None,
+                // Replace erroneous scancodes with a proper scancode for NumLock
+                (winuser::VK_NUMLOCK, 0x45) => scancode = 0xE045,
+                (winuser::VK_PAUSE, 0x45) if source == EventSource::RawInput => scancode = 0xE045,
+                _ => {}
+            }
             match scancode {
                 // This is only triggered when using raw input. Without this check, we get two events whenever VK_PAUSE is
-                // pressed, the first one having scancode 0x1D but vkey VK_PAUSE...
-                0x1D if vkey == winuser::VK_PAUSE => return None,
+                // pressed, the first one having scancode 0xe0_1d but vkey VK_PAUSE...
+                0xe0_1d if vkey == winuser::VK_PAUSE => {
+                    return None;
+                }
                 // ...and the second having scancode 0x45 but an unmatched vkey!
-                0x45 => winuser::VK_PAUSE,
+                0x45 => {
+                    if vkey == winuser::VK_NUMLOCK {
+                        // Erroneous 0x45 scancode when pressing "NumLock"
+                        return None;
+                    } else {
+                        // Unmatched vkey for VK_PAUSE
+                        winuser::VK_PAUSE
+                    }
+                }
+                0xE037 | 0x54 => vkey,
                 // VK_PAUSE and VK_SCROLL have the same scancode when using modifiers, alongside incorrect vkey values.
                 0x46 => {
                     if extended {
@@ -378,6 +449,10 @@ pub fn handle_extended_keys(
                         winuser::VK_SCROLL
                     }
                 }
+                // Extra scancode sent when pressing `Print Screen` as well as `Insert`, `Delete`, `Home`, `End`, `Page Up`
+                // `Page Down`, and the arrow keys when using raw input. All but `Print Screen` only emit this if `NumLock` is
+                // off.
+                0xE02A => return None,
                 _ => vkey,
             }
         }
@@ -385,13 +460,15 @@ pub fn handle_extended_keys(
     Some((vkey, scancode))
 }
 
-pub fn process_key_params(
+pub(super) fn process_key_params(
     wparam: WPARAM,
     lparam: LPARAM,
+    event_source: EventSource,
+    fix_alt_gr: &AtomicBool,
 ) -> Option<(ScanCode, Option<VirtualKeyCode>)> {
     let scancode = ((lparam >> 16) & 0xff) as UINT;
     let extended = (lparam & 0x01000000) != 0;
-    handle_extended_keys(wparam as _, scancode, extended)
+    handle_extended_keys(wparam as _, scancode, extended, event_source, fix_alt_gr)
         .map(|(vkey, scancode)| (scancode, vkey_to_winit_vkey(vkey)))
 }
 

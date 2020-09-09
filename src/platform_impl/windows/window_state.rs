@@ -30,6 +30,7 @@ pub struct WindowState {
     pub scale_factor: f64,
 
     pub modifiers_state: ModifiersState,
+    pub alt_dumb: bool,
     pub fullscreen: Option<Fullscreen>,
     pub is_dark_mode: bool,
     pub high_surrogate: Option<u16>,
@@ -120,6 +121,7 @@ impl WindowState {
             scale_factor,
 
             modifiers_state: ModifiersState::default(),
+            alt_dumb: false,
             fullscreen: None,
             is_dark_mode,
             high_surrogate: None,

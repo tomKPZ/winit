@@ -1107,7 +1107,13 @@ unsafe extern "system" fn public_window_callback<T: 'static>(
             if msg == winuser::WM_SYSKEYDOWN && wparam as i32 == winuser::VK_F4 {
                 commctrl::DefSubclassProc(window, msg, wparam, lparam)
             } else {
-                if let Some((scancode, vkey)) = process_key_params(wparam, lparam) {
+                if let Some((scancode, vkey)) = process_key_params(
+                    wparam,
+                    lparam,
+                    super::event::EventSource::Window,
+                    &subclass_input.event_loop_runner.fix_alt_gr,
+                ) {
+                    // mem::drop(window_state);
                     update_modifiers(window, subclass_input);
 
                     #[allow(deprecated)]
@@ -1139,7 +1145,14 @@ unsafe extern "system" fn public_window_callback<T: 'static>(
 
         winuser::WM_KEYUP | winuser::WM_SYSKEYUP => {
             use crate::event::ElementState::Released;
-            if let Some((scancode, vkey)) = process_key_params(wparam, lparam) {
+            // let mut window_state = subclass_input.window_state.lock();
+            if let Some((scancode, vkey)) = process_key_params(
+                wparam,
+                lparam,
+                super::event::EventSource::Window,
+                &subclass_input.event_loop_runner.fix_alt_gr,
+            ) {
+                // mem::drop(window_state);
                 update_modifiers(window, subclass_input);
 
                 #[allow(deprecated)]
@@ -2061,9 +2074,13 @@ unsafe extern "system" fn thread_event_target_callback<T: 'static>(
                         let extended = util::has_flag(keyboard.Flags, winuser::RI_KEY_E0 as _)
                             | util::has_flag(keyboard.Flags, winuser::RI_KEY_E1 as _);
 
-                        if let Some((vkey, scancode)) =
-                            handle_extended_keys(keyboard.VKey as _, scancode, extended)
-                        {
+                        if let Some((vkey, scancode)) = handle_extended_keys(
+                            keyboard.VKey as _,
+                            scancode,
+                            extended,
+                            super::event::EventSource::RawInput,
+                            &subclass_input.event_loop_runner.fix_alt_gr,
+                        ) {
                             let virtual_keycode = vkey_to_winit_vkey(vkey);
 
                             #[allow(deprecated)]
