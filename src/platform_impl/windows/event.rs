@@ -414,34 +414,35 @@ pub(super) fn handle_extended_keys(
         _ => {
             match (vkey, scancode) {
                 // Replace erroneous scancodes with a proper scancode for Pause/Break.
-                (winuser::VK_PAUSE, 0xE01D) => scancode = 0xE046,
-                (winuser::VK_PAUSE, 0x45) if source == EventSource::Window => scancode = 0xE046,
+                (winuser::VK_PAUSE, 0xE01D) => {
+                    scancode = 0xE046;
+                    vkey
+                }
+                (winuser::VK_PAUSE, 0x45) if source == EventSource::Window => {
+                    scancode = 0xE046;
+                    vkey
+                }
                 // Omit extra erroneous "Pause/Break" events. Only happens with raw input.
                 (0xFF, 0x45) => return None,
                 // Replace erroneous scancodes with a proper scancode for NumLock
-                (winuser::VK_NUMLOCK, 0x45) => scancode = 0xE045,
-                (winuser::VK_PAUSE, 0x45) if source == EventSource::RawInput => scancode = 0xE045,
-                _ => {}
-            }
-            match scancode {
+                (winuser::VK_NUMLOCK, 0x45) => {
+                    scancode = 0xE045;
+                    vkey
+                }
+                (winuser::VK_PAUSE, 0x45) if source == EventSource::RawInput => {
+                    scancode = 0xE045;
+                    vkey
+                }
                 // This is only triggered when using raw input. Without this check, we get two events whenever VK_PAUSE is
                 // pressed, the first one having scancode 0xe0_1d but vkey VK_PAUSE...
-                0xe0_1d if vkey == winuser::VK_PAUSE => {
+                (_, 0xe0_1d) if vkey == winuser::VK_PAUSE => {
                     return None;
                 }
                 // ...and the second having scancode 0x45 but an unmatched vkey!
-                0x45 => {
-                    if vkey == winuser::VK_NUMLOCK {
-                        // Erroneous 0x45 scancode when pressing "NumLock"
-                        return None;
-                    } else {
-                        // Unmatched vkey for VK_PAUSE
-                        winuser::VK_PAUSE
-                    }
-                }
-                0xE037 | 0x54 => vkey,
+                (_, 0x45) => winuser::VK_PAUSE,
+                (_, 0xE037) | (_, 0x54) => vkey,
                 // VK_PAUSE and VK_SCROLL have the same scancode when using modifiers, alongside incorrect vkey values.
-                0x46 => {
+                (_, 0x46) => {
                     if extended {
                         scancode = 0x45;
                         winuser::VK_PAUSE
@@ -452,11 +453,15 @@ pub(super) fn handle_extended_keys(
                 // Extra scancode sent when pressing `Print Screen` as well as `Insert`, `Delete`, `Home`, `End`, `Page Up`
                 // `Page Down`, and the arrow keys when using raw input. All but `Print Screen` only emit this if `NumLock` is
                 // off.
-                0xE02A => return None,
+                (_, 0xE02A) => return None,
                 _ => vkey,
             }
         }
     };
+    // warn!(
+    //     "{:?}, vkey = 0x{:X}, scancode = 0x{:X}",
+    //     source, vkey, scancode
+    // );
     Some((vkey, scancode))
 }
 
