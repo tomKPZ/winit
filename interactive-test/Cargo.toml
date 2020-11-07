@@ -1,0 +1,13 @@
+[package]
+name = "interactive-test"
+version = "0.1.0"
+authors = ["Markus Røyset <maroider@protonmail.com>"]
+edition = "2018"
+
+[dependencies]
+env_logger = "0.7"
+iced_graphics = { git = "https://github.com/maroider/iced", rev = "a2e1c80" }
+iced_native = { git = "https://github.com/maroider/iced", rev = "a2e1c80" }
+iced_raqote = { git = "https://github.com/maroider/iced", rev = "a2e1c80" }
+winit = { path = "../" }
+winit-blit = { path = "../../winit-blit" }
