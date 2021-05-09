@@ -1103,7 +1103,7 @@ unsafe fn public_window_callback_inner<T: 'static>(
             }
 
             // This is necessary for us to still get sent WM_SIZE.
-            result = ProcResult::DefWindowProc;            
+            result = ProcResult::DefWindowProc;
         }
 
         winuser::WM_SIZE => {
@@ -2149,10 +2149,7 @@ unsafe extern "system" fn thread_event_target_callback<T: 'static>(
     result
 }
 
-unsafe fn handle_raw_input<T: 'static>(
-    userdata: &ThreadMsgTargetData<T>,
-    data: RAWINPUT,
-) {
+unsafe fn handle_raw_input<T: 'static>(userdata: &ThreadMsgTargetData<T>, data: RAWINPUT) {
     use crate::event::{
         DeviceEvent::{Button, Key, Motion, MouseMotion, MouseWheel},
         ElementState::{Pressed, Released},
