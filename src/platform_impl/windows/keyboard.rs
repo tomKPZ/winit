@@ -60,28 +60,10 @@ pub struct MessageAsKeyEvent {
 /// text input. The "sequence" only consists of one WM_KEYUP / WM_SYSKEYUP event.
 pub struct KeyEventBuilder {
     event_info: Option<PartialKeyEventInfo>,
-
-    /// The keyup event needs to call `ToUnicode` to determine what the text produced by the
-    /// key with all modifiers except CTRL (the `logical_key`) is.
-    ///
-    /// But `ToUnicode` without the non-modifying flag (see `key_labels`), resets the dead key
-    /// state which would be incorrect during every keyup event. Therefore this variable is used
-    /// to determine whether the last keydown event produced a dead key.
-    ///
-    /// Note that this variable is not always correct because it does
-    /// not track key presses outside of this window. However, the ONLY situation where this
-    /// doesn't work as intended is when the user presses a dead key outside of this window, and
-    /// switches to this window BEFORE releasing it then releases the dead key. In this case
-    /// the `ToUnicode` function will be called, incorrectly clearing the dead key state. Having
-    /// an inccorect behaviour only in this case seems acceptable.
-    prev_down_was_dead: bool,
 }
 impl Default for KeyEventBuilder {
     fn default() -> Self {
-        KeyEventBuilder {
-            event_info: None,
-            prev_down_was_dead: false,
-        }
+        KeyEventBuilder { event_info: None }
     }
 }
 impl KeyEventBuilder {
@@ -120,7 +102,6 @@ impl KeyEventBuilder {
                     return vec![];
                 }
                 *result = ProcResult::Value(0);
-                self.prev_down_was_dead = false;
 
                 let mut layouts = LAYOUT_CACHE.lock().unwrap();
                 let event_info = PartialKeyEventInfo::from_message(
@@ -176,7 +157,6 @@ impl KeyEventBuilder {
             }
             winuser::WM_DEADCHAR | winuser::WM_SYSDEADCHAR => {
                 *result = ProcResult::Value(0);
-                self.prev_down_was_dead = true;
                 // At this point, we know that there isn't going to be any more events related to
                 // this key press
                 let event_info = self.event_info.take().unwrap();
@@ -188,6 +168,10 @@ impl KeyEventBuilder {
                 }];
             }
             winuser::WM_CHAR | winuser::WM_SYSCHAR => {
+                if self.event_info.is_none() {
+                    trace!("Received a CHAR message but no `event_info` was available. The message is probably IME, returning.");
+                    return vec![];
+                }
                 *result = ProcResult::Value(0);
                 let is_high_surrogate = 0xD800 <= wparam && wparam <= 0xDBFF;
                 let is_low_surrogate = 0xDC00 <= wparam && wparam <= 0xDFFF;
@@ -218,15 +202,19 @@ impl KeyEventBuilder {
                 }
 
                 if is_utf16 {
-                    self.event_info
-                        .as_mut()
-                        .unwrap()
-                        .utf16parts
-                        .push(wparam as u16);
+                    if let Some(ev_info) = self.event_info.as_mut() {
+                        ev_info.utf16parts.push(wparam as u16);
+                    }
                 } else {
                     // In this case, wparam holds a UTF-32 character.
                     // Let's encode it as UTF-16 and append it to the end of `utf16parts`
-                    let utf16parts = &mut self.event_info.as_mut().unwrap().utf16parts;
+                    let utf16parts = match self.event_info.as_mut() {
+                        Some(ev_info) => &mut ev_info.utf16parts,
+                        None => {
+                            warn!("The event_info was None when it was expected to be some");
+                            return vec![];
+                        }
+                    };
                     let start_offset = utf16parts.len();
                     let new_size = utf16parts.len() + 2;
                     utf16parts.resize(new_size, 0);
@@ -237,8 +225,13 @@ impl KeyEventBuilder {
                     }
                 }
                 if !more_char_coming {
-                    let mut event_info = self.event_info.take().unwrap();
-
+                    let mut event_info = match self.event_info.take() {
+                        Some(ev_info) => ev_info,
+                        None => {
+                            warn!("The event_info was None when it was expected to be some");
+                            return vec![];
+                        }
+                    };
                     let mut layouts = LAYOUT_CACHE.lock().unwrap();
                     // It's okay to call `ToUnicode` here, because at this point the dead key
                     // is already consumed by the character.

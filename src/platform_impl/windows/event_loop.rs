@@ -5,10 +5,7 @@ mod runner;
 use parking_lot::Mutex;
 use std::{
     cell::Cell,
-    collections::{
-        hash_map::{Entry, HashMap},
-        VecDeque,
-    },
+    collections::VecDeque,
     marker::PhantomData,
     mem, panic, ptr,
     rc::Rc,
@@ -89,7 +86,6 @@ lazy_static! {
         get_function!("user32.dll", GetPointerTouchInfo);
     static ref GET_POINTER_PEN_INFO: Option<GetPointerPenInfo> =
         get_function!("user32.dll", GetPointerPenInfo);
-    static ref RAW_KEYS_PRESSED: Mutex<HashMap<KeyCode, bool>> = Mutex::new(HashMap::new());
 }
 
 pub(crate) struct SubclassInput<T: 'static> {
@@ -2135,11 +2131,12 @@ unsafe fn handle_raw_input<T: 'static>(
         }
 
         if util::has_flag(mouse.usButtonFlags, winuser::RI_MOUSE_WHEEL) {
-            let delta = mouse.usButtonData as SHORT / winuser::WHEEL_DELTA;
+            // We must cast to SHORT first, becaues `usButtonData` must be interpreted as signed.
+            let delta = mouse.usButtonData as SHORT as f32 / winuser::WHEEL_DELTA as f32;
             subclass_input.send_event(Event::DeviceEvent {
                 device_id,
                 event: MouseWheel {
-                    delta: LineDelta(0.0, delta as f32),
+                    delta: LineDelta(0.0, delta),
                 },
             });
         }
@@ -2200,7 +2197,7 @@ unsafe fn handle_raw_input<T: 'static>(
             // There's another combination which isn't quite an equivalence:
             // PrtSc used to be Shift+Asterisk. This means that on some keyboards, presssing
             // PrtSc (print screen) produces the following sequence:
-            // 1, 0xE02A - Which is a left shift (0x2A) with an exteion flag (0xE000)
+            // 1, 0xE02A - Which is a left shift (0x2A) with an extension flag (0xE000)
             // 2, 0xE037 - Which is a numpad multiply (0x37) with an exteion flag (0xE000). This on
             //             its own it can be interpreted as PrtSc
             //
@@ -2263,25 +2260,11 @@ unsafe fn handle_raw_input<T: 'static>(
                 _ => (),
             }
         }
-        let repeat;
-        let mut keys_pressed = RAW_KEYS_PRESSED.lock();
-        match keys_pressed.entry(code) {
-            Entry::Occupied(mut e) => {
-                let prev_pressed = e.get_mut();
-                repeat = *prev_pressed && pressed;
-                *prev_pressed = pressed;
-            }
-            Entry::Vacant(e) => {
-                e.insert(pressed);
-                repeat = false;
-            }
-        }
         subclass_input.send_event(Event::DeviceEvent {
             device_id,
             event: Key(RawKeyEvent {
                 physical_key: code,
                 state,
-                repeat,
             }),
         });
     }

@@ -23,9 +23,9 @@
 mod device;
 mod error;
 mod event_loop;
+mod keyboard;
 mod monitor;
 mod window;
-mod keyboard;
 
 #[cfg(feature = "web-sys")]
 #[path = "web_sys/mod.rs"]
