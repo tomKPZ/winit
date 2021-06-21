@@ -145,13 +145,14 @@ impl Canvas {
             move |event: KeyboardEvent| {
                 event.prevent_default();
                 let key = event::key(&event);
+                let modifiers = event::keyboard_modifiers(&key);
                 handler(
                     event::key_code(&event),
                     key,
                     event::key_text(&event),
                     event::key_location(&event),
                     event.repeat(),
-                    event::keyboard_modifiers(key),
+                    modifiers,
                 );
             },
         ));
@@ -167,13 +168,14 @@ impl Canvas {
             move |event: KeyboardEvent| {
                 event.prevent_default();
                 let key = event::key(&event);
+                let modifiers = event::keyboard_modifiers(&key);
                 handler(
                     event::key_code(&event),
                     key,
                     event::key_text(&event),
                     event::key_location(&event),
                     event.repeat(),
-                    event::keyboard_modifiers(key),
+                    modifiers,
                 );
             },
         ));
